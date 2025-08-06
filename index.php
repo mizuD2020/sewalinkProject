@@ -10,7 +10,13 @@ require_once 'db_config.php'; // Assume this file contains the DB connection set
 //     exit();
 // }
 
+if (!isset($_SESSION['user_id'])) {
+    header("Location: logins/user_login.php");
+    exit();
+}
+
 $user_id = $_SESSION['user_id'];
+
 
 // Database service class
 class DatabaseService
@@ -75,12 +81,36 @@ class DatabaseService
 
     public function createBooking($data)
     {
+        // 1. First check if the date & time slot is already booked
+        $checkStmt = $this->pdo->prepare("
+        SELECT COUNT(*) 
+        FROM bookings 
+        WHERE preferred_date = ? 
+        AND preferred_time = ?
+        AND worker_id = ?
+        AND status != 'cancelled'  
+    ");
+
+        $checkStmt->execute([
+            $data['preferred_date'],
+            $data['preferred_time'],
+            $data['worker_id']
+        ]);
+
+        $conflictExists = (bool) $checkStmt->fetchColumn();
+
+        if ($conflictExists) {
+            throw new Exception("This time slot is already booked. Please choose another date/time.");
+        }
+
+        // 2. If no conflict, proceed with booking
         $stmt = $this->pdo->prepare("
-            INSERT INTO bookings (
-                user_id, worker_id, service_description, preferred_date, preferred_time,
-                customer_name, customer_phone, address, notes, estimated_duration, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-        ");
+        INSERT INTO bookings (
+            user_id, worker_id, service_description, preferred_date, preferred_time,
+            customer_name, customer_phone, address, notes, estimated_duration, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    ");
+
         return $stmt->execute([
             $data['user_id'],
             $data['worker_id'],
@@ -187,8 +217,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'estimated_duration' => $_POST['duration'] ?? 2
                     ];
 
-                    if ($dbService->createBooking($bookingData)) {
-                        $_SESSION['booking_success'] = true;
+
+                    try {
+                        $bookingCreated = $dbService->createBooking($bookingData);
+                        if ($bookingCreated) {
+                            $_SESSION['booking_success'] = true;
+                        }
+                    } catch (Exception $e) {
+                        // Show error message
+                        echo "<script>alert('" . addslashes($e->getMessage()) . "'); history.back();</script>";
+                        exit();
                     }
                 }
                 break;
@@ -698,6 +736,7 @@ if ($page === 'rating' && isset($_GET['booking_id'])) {
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Book Service</h5>
+
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <form method="POST">
@@ -727,8 +766,10 @@ if ($page === 'rating' && isset($_GET['booking_id'])) {
 
                         <div class="row mb-3">
                             <div class="col-md-6">
-                                <label class="form-label">Preferred Date</label>
-                                <input type="date" class="form-control" name="date" required>
+                                <label class="form-label">Preferred Date
+                                </label>
+                                <input type="date" class="form-control" name="date"
+                                    min="<?= htmlspecialchars(date('Y-m-d', strtotime('tomorrow'))); ?>" required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Preferred Time</label>

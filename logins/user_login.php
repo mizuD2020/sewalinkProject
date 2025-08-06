@@ -23,9 +23,11 @@ if ($_POST) {
 
             if ($user) {
                 // Login successful
+
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['user_name'] = $user['name'];
                 $_SESSION['user_email'] = $user['email'];
+                $_SESSION['user_phone'] = $user['phone'];
                 $_SESSION['user_type'] = 'user';
 
                 // Redirect to dashboard or intended page
